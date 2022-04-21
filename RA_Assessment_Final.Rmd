@@ -1,0 +1,147 @@
+---
+title: "Untitled"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(Seurat)
+library(patchwork)
+library(Matrix)
+library(stringr)
+library(ggplot2)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+
+
+## Function to convert .mex file to a Seurat Object for further analysis
+```{r cars}
+convert_RDS_Seurat <- function(path){
+  UMI_object = Read10X(data.dir = path)
+  a <- str_split("E:/sushant/GW18_motor.mex/GW18_motor","/")
+  name = tail(a[[1]],1)
+  SeuratObject = CreateSeuratObject(counts = UMI_object, project=name,min.cells = 3, min.features = 200)
+  SeuratObject[["percent.mt"]] <- PercentageFeatureSet(SeuratObject, pattern = "^MT-")
+  return(SeuratObject)
+}
+```
+
+
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+GW18_motor_seurat = convert_RDS_Seurat("E:/sushant/GW18_motor.mex/GW18_motor")
+#saveRDS(GW18_motor_seurat, file="E:/sushant/Test/GW18_motor_seurat.rds")
+
+
+
+GW19_M1_all_seurat = convert_RDS_Seurat("E:/sushant/GW19_M1_all.mex/GW19_M1_all")
+#saveRDS(GW19_M1_all_seurat, file="E:/sushant/Test/GW19_M1_all_seurat.rds")
+
+
+GW19_M1_CP_seurat = convert_RDS_Seurat("E:/sushant/GW19_M1_CP.mex/GW19_M1_CP")
+#saveRDS(GW19_M1_CP_seurat, file="E:/sushant/Test/GW19_M1_CP_seurat.rds")
+
+
+GW20_motor_seurat = convert_RDS_Seurat("E:/sushant/GW20_motor.mex/GW20_motor")
+#saveRDS(GW20_motor_seurat , file="E:/sushant/Test/GW20_motor_seurat.rds")
+
+
+
+GW22_motor1_seurat = convert_RDS_Seurat("E:/sushant/GW22_motor1.mex/GW22_motor1")
+#saveRDS(GW22_motor1_seurat , file="E:/sushant/Test/GW22_motor1_seurat.rds")
+
+
+GW22_motor2_seurat = convert_RDS_Seurat("E:/sushant/GW22_motor2.mex/GW22_motor2")
+#saveRDS(GW22_motor2_seurat , file="E:/sushant/Test/GW22_motor2_seurat.rds")
+
+
+GW22T_motor1_seurat = convert_RDS_Seurat("E:/sushant/GW22T_motor1.mex/GW22T_motor1")
+#saveRDS(GW22T_motor1_seurat , file="E:/sushant/Test/GW22T_motor1_seurat.rds")
+
+
+GW22T_motor2_seurat = convert_RDS_Seurat("E:/sushant/GW22T_motor2.mex/GW22T_motor2")
+#saveRDS(GW22T_motor2_seurat  , file="E:/sushant/Test/GW22T_motor2_seurat.rds")
+
+
+filtered_feature_bc_matrix_seurat = convert_RDS_Seurat("E:/sushant/filtered_feature_bc_matrix.mex/filtered_feature_bc_matrix")
+#saveRDS(filtered_feature_bc_matrix_seurat  , file="E:/sushant/Test/filtered_feature_bc_matrix_seurat.rds")
+```
+
+##Storing the Seurat Objects for all the files in a vector
+```{r}
+vector_of_Seurat <- c(GW18_motor_seurat, GW19_M1_all_seurat, GW19_M1_CP_seurat, GW20_motor_seurat, GW22_motor1_seurat, GW22_motor2_seurat, GW22T_motor1_seurat, GW22T_motor2_seurat, filtered_feature_bc_matrix_seurat)
+```
+
+c("nFeature_RNA", "nCount_RNA", "percent.mt")
+
+
+
+```{r}
+violin_plot_feature_scatter <- function(Seurat_Object,feature_Vector){
+  print(VlnPlot(Seurat_Object, features = feature_Vector, ncol = 3))
+  print(FeatureScatter(Seurat_Object, feature1 = feature_Vector[2], feature2 = feature_Vector[3]))
+  print(FeatureScatter(Seurat_Object, feature1 = feature_Vector[2], feature2 = feature_Vector[1]))
+  
+}
+```
+
+
+
+
+```{r}
+feature_Vector <- c("nFeature_RNA", "nCount_RNA", "percent.mt")
+violin_plot_feature_scatter(GW18_motor_seurat,feature_Vector)
+```
+
+
+```{r}
+##Take Subset
+GW18_motor_seurat <- subset(GW18_motor_seurat, subset = nFeature_RNA > 500 & nFeature_RNA < 4000 & percent.mt < 7.5)
+```
+
+
+
+
+```{r}
+print(ggplot(GW18_motor_seurat@meta.data) + geom_density(aes(x=nFeature_RNA)))
+print(ggplot(GW18_motor_seurat@meta.data) + geom_density(aes(x=nCount_RNA)))
+print(ggplot(GW18_motor_seurat@meta.data) + geom_density(aes(x=percent.mt)))
+```
+
+
+
+## Data is skewed hence we use log normalization to normalize the data and use a scaling factor of 10000
+
+```{r}
+normalize_variable_scaled <- function(Seurat_Object){
+  Seurat_Object <- NormalizeData(Seurat_Object)
+  
+  # Identify high variable features
+  
+  Seurat_Object <- FindVariableFeatures(Seurat_Object, selection.method = "vst", nfeatures = 4000)
+  top10 <- head(VariableFeatures(Seurat_Object), 10)
+  print(LabelPoints(plot = VariableFeaturePlot(Seurat_Object), points = top10, repel = TRUE))
+  
+  # Perform Data Scaling
+  Seurat_Object <- ScaleData(object = Seurat_Object, vars.to.regress = "percent.mt")
+  Seurat_Object <- RunPCA(object = Seurat_Object, pc.genes = Seurat_Object@var.genes, do.print = TRUE, pcs.print = 1:5, 
+    genes.print = 5)
+
+  return(Seurat_Object)
+}
+```
+
+
+```{r}
+GW18_motor_seurat = normalize_variable_scaled(GW18_motor_seurat)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
