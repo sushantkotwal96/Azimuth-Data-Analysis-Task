@@ -1,0 +1,801 @@
+---
+title: "RA-Assessment Summer 2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(Seurat)
+library(patchwork)
+library(Matrix)
+library(stringr)
+library(ggplot2)
+library(purrr)
+```
+
+
+## In the Step 1, we have downloaded 9 files from the Azimuth Portal. However we notice that the files are of .MEX type i.e. Matrix Exchange format. This is the format which is not supported by Azimuth. The file types supported by Azimuth are:
+1. Seurat objects as RDS
+2. 10x Genomics H5
+3. H5AD
+4. H5Seurat
+5. Matrix/matrix/data.frame as RDS
+
+## So here we need to convert these .MEX files to .RDS format. But before doing that we need to create Seurat objects for these files. First we read the data by using Read10X function of cellranger pipeline which returns a UMI (unique molecular index) count matrix by reading the two .TSV files from the downloaded data. One is the barcode file and other is the genes file. It then generates a matrix using data from these files which is a sparse matrix.
+
+## In the next step, we create a Seurat Object using this sparse matrix. For this, we need to install the 'Seurat' package.
+
+## In the steps below, we are converting the reading the data from .MEX files and storing it in a Seurat Object
+
+## Function to convert .mex file to a Seurat Object for further analysis
+```{r cars}
+convert_RDS_Seurat <- function(path){
+  UMI_object = Read10X(data.dir = path)
+  a <- str_split(path,"/")
+  name = tail(a[[1]],1)
+  SeuratObject = CreateSeuratObject(counts = UMI_object, project=name,min.cells = 3, min.features = 200)
+  SeuratObject[["percent.mt"]] <- PercentageFeatureSet(SeuratObject, pattern = "^MT-")
+  return(SeuratObject)
+}
+```
+
+
+
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+GW18_motor_seurat = convert_RDS_Seurat("E:/sushant/GW18_motor.mex/GW18_motor")
+#saveRDS(GW18_motor_seurat, file="E:/sushant/Test/GW18_motor_seurat.rds")
+
+
+
+GW19_M1_all_seurat = convert_RDS_Seurat("E:/sushant/GW19_M1_all.mex/GW19_M1_all")
+#saveRDS(GW19_M1_all_seurat, file="E:/sushant/Test/GW19_M1_all_seurat.rds")
+
+
+GW19_M1_CP_seurat = convert_RDS_Seurat("E:/sushant/GW19_M1_CP.mex/GW19_M1_CP")
+#saveRDS(GW19_M1_CP_seurat, file="E:/sushant/Test/GW19_M1_CP_seurat.rds")
+
+
+GW20_motor_seurat = convert_RDS_Seurat("E:/sushant/GW20_motor.mex/GW20_motor")
+#saveRDS(GW20_motor_seurat , file="E:/sushant/Test/GW20_motor_seurat.rds")
+
+
+
+GW22_motor1_seurat = convert_RDS_Seurat("E:/sushant/GW22_motor1.mex/GW22_motor1")
+#saveRDS(GW22_motor1_seurat , file="E:/sushant/Test/GW22_motor1_seurat.rds")
+
+
+GW22_motor2_seurat = convert_RDS_Seurat("E:/sushant/GW22_motor2.mex/GW22_motor2")
+#saveRDS(GW22_motor2_seurat , file="E:/sushant/Test/GW22_motor2_seurat.rds")
+
+
+GW22T_motor1_seurat = convert_RDS_Seurat("E:/sushant/GW22T_motor1.mex/GW22T_motor1")
+#saveRDS(GW22T_motor1_seurat , file="E:/sushant/Test/GW22T_motor1_seurat.rds")
+
+
+GW22T_motor2_seurat = convert_RDS_Seurat("E:/sushant/GW22T_motor2.mex/GW22T_motor2")
+#saveRDS(GW22T_motor2_seurat  , file="E:/sushant/Test/GW22T_motor2_seurat.rds")
+
+
+filtered_feature_bc_matrix_seurat = convert_RDS_Seurat("E:/sushant/filtered_feature_bc_matrix.mex/filtered_feature_bc_matrix")
+#saveRDS(filtered_feature_bc_matrix_seurat  , file="E:/sushant/Test/filtered_feature_bc_matrix_seurat.rds")
+```
+
+
+## Creating Violin Plot and FeatureScatter Plot for visualizing the QC (Quality Control) metrics for cells. Here the QC metrics are: 
+  1. nCount_RNA : number of UMI detected per cell
+  2. nFeature_RNA: number of genes detected per cell
+  3. Mitochondria Percentage
+
+```{r}
+violin_plot_feature_scatter <- function(Seurat_Object,feature_Vector){
+  print(VlnPlot(Seurat_Object, features = feature_Vector, ncol = 3))
+  print(FeatureScatter(Seurat_Object, feature1 = feature_Vector[2], feature2 = feature_Vector[3]))
+  print(FeatureScatter(Seurat_Object, feature1 = feature_Vector[2], feature2 = feature_Vector[1]))
+  
+}
+```
+
+
+
+
+```{r}
+feature_Vector <- c("nFeature_RNA", "nCount_RNA", "percent.mt")
+violin_plot_feature_scatter(GW18_motor_seurat,feature_Vector)
+```
+
+## We filter the cells using the above 3 QC metrics. Using the number of unique genes in each cell, we can determine if the cell is low quality or if it is an empty droplet. They tend to have very few genes. We also check for the existence of Cell Doublets/Multiplets. They on the other hand tend to have extremely high gene count.
+
+## Then we use Mitochondria percentage for filtering. The low quality cells have extensive mitochondria concentration. In the above step, we calculated Mitochondria percentage using PercentFeatureSet method
+
+
+```{r}
+##Take Subset
+GW18_motor_seurat <- subset(GW18_motor_seurat, subset = nFeature_RNA > 500 & nFeature_RNA < 2500 & percent.mt < 7)
+```
+
+
+## Here we plot the QC metrics on a density plot and from the plots mainly for nCount_RNA and nFeature_RNA the distribution of data is right skewed. Therefore we need to normalize this skewed data.
+
+
+```{r}
+print(ggplot(GW18_motor_seurat@meta.data) + geom_density(aes(x=nFeature_RNA)))
+print(ggplot(GW18_motor_seurat@meta.data) + geom_density(aes(x=nCount_RNA)))
+print(ggplot(GW18_motor_seurat@meta.data) + geom_density(aes(x=percent.mt)))
+```
+
+## Here we apply Log Normalization on the data. We can infer that we should always log transform the gene expression data because gene expression levels are heavily skewed in linear scale. Lower expressed genes are between 0 and 1. High expressed genes are between 1 and infinity. 
+
+## Next we want to select the genes which are highly variable from the data. For this, we use Seurat's FeatureVariableGenes method which calculates the average expression and dispersion for each gene. It then places the genes into bins and calculated Z-score for dispersion within each bin
+
+## Then we perform scaling on the data. This data still contains unwanted technical noise, effects and biological sources of variation. We therefore can improve the downstream dimensionality reduction and clustering by regressing these signals. To mitigrate the effects of these signals, Seurat constructs linear models to predict gene expressions based on user defined variables. The scaled Z-score residuals of these models are stored in Scale.Data slot and used for dimensionality reduction and clustering
+
+
+```{r}
+normalize_variable_scaled <- function(Seurat_Object){
+  Seurat_Object <- NormalizeData(Seurat_Object)
+  
+  # Identify high variable features
+  
+  Seurat_Object <- FindVariableFeatures(Seurat_Object, selection.method = "vst", nfeatures = 2000)
+  top10 <- head(VariableFeatures(Seurat_Object), 10)
+  print(LabelPoints(plot = VariableFeaturePlot(Seurat_Object), points = top10, repel = TRUE))
+  
+  # Perform Data Scaling
+  Seurat_Object <- ScaleData(object = Seurat_Object, vars.to.regress = "percent.mt")
+  Seurat_Object <- RunPCA(object = Seurat_Object, pc.genes = Seurat_Object@var.genes, do.print = TRUE, pcs.print = 1:5, 
+    genes.print = 5)
+
+  return(Seurat_Object)
+}
+```
+
+
+## Then we determine the number of dimensions to be used. We can use JackStraw Plot or Elbow plot for this. Using JackStraw plot, we can visualize and compare p-value distribution for each dimension. Significant Principal Component shows strong enrichment of features having low p-values.
+
+## Using elbow plot, we observe the change in standard deviation for different number of dimensions. We choose the number of dimensions which are corresponding to the elbow point which can be said when standard deviation decreases slowly.
+
+```{r}
+dimension_selection <- function(Seurat_Object){
+#Seurat_Object <- JackStraw(object =Seurat_Object, num.replicate = 100)
+
+#print(JackStrawPlot(object = Seurat_Object, PCs = 1:12))
+
+ElbowPlot(Seurat_Object)
+
+#return(Seurat_Object)
+}
+```
+
+## Here top 10 features showing high variability are labeled
+
+```{r}
+GW18_motor_seurat = normalize_variable_scaled(GW18_motor_seurat)
+```
+
+```{r}
+dimension_selection(GW18_motor_seurat)
+```
+
+## Now we perform clustering after selecting high variable features and dimensionality reduction. This primarily uses a distance metric. First we construct KNN based on Euclidean distance in PCA space and refine edge weights between any two cells based on Jaccard distance. The FindClusters method is used. The resolution parameter for this method sets the granularity for downstream clustering. AS we increase the value for granularity more clusters are formed. Typically we set a value between 0.6-1.2 for around 3000 cells
+```{r}
+cell_clustering_markers <- function(Seurat_Object){
+Seurat_Object <- FindNeighbors(Seurat_Object, dims = 1:10)
+Seurat_Object <- FindClusters(Seurat_Object, resolution = 0.5)
+Seurat_Object <- RunTSNE(object = Seurat_Object, dims.use = 1:10, do.fast = TRUE)
+TSNEPlot(object = Seurat_Object )
+return(Seurat_Object)
+}
+```
+
+
+## Lastly we find markers for our clusters using FindAllMarkers method of Seurat. It uses differential expression for doing so.
+
+```{r}
+GW18_motor_seurat = cell_clustering_markers(GW18_motor_seurat)
+```
+
+```{r}
+TSNEPlot(GW18_motor_seurat)
+```
+
+```{r}
+find_marker <- function(Seurat_Object){
+  Seurat_Object.markers <- FindAllMarkers(Seurat_Object, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+Seurat_Object.markers %>%group_by(cluster) %>%slice_max(n = 2, order_by = avg_log2FC)
+return(Seurat_Object)
+}
+```
+
+
+
+```{r}
+GW18_motor_seurat = find_marker(GW18_motor_seurat)
+```
+
+## Now we save the Seurat object as a .RDS file to a specified location
+
+```{r}
+saveRDS(GW18_motor_seurat, file = "E:/sushant/Test/GW18_motor_seurat.rds")
+```
+
+
+
+## Doing the same procedure for GW19_M1_all
+
+```{r}
+violin_plot_feature_scatter(GW19_M1_all_seurat,feature_Vector)
+```
+
+```{r}
+##Take Subset
+GW19_M1_all_seurat <- subset(GW19_M1_all_seurat, subset = nFeature_RNA > 500 & nFeature_RNA < 5000 & percent.mt < 6)
+```
+
+
+
+
+```{r}
+print(ggplot(GW19_M1_all_seurat@meta.data) + geom_density(aes(x=nFeature_RNA)))
+print(ggplot(GW19_M1_all_seurat@meta.data) + geom_density(aes(x=nCount_RNA)))
+print(ggplot(GW19_M1_all_seurat@meta.data) + geom_density(aes(x=percent.mt)))
+```
+
+
+
+
+
+
+```{r}
+GW19_M1_all_seurat = normalize_variable_scaled(GW19_M1_all_seurat)
+```
+
+```{r}
+dimension_selection(GW19_M1_all_seurat)
+```
+
+```{r}
+GW19_M1_all_seurat = cell_clustering_markers(GW19_M1_all_seurat)
+```
+## TSNE plot is used for non-linear dimensionality reduction. We learn the underlying manifold of the data for placing similar cells together in low-dimensional space using this
+
+```{r}
+TSNEPlot(GW19_M1_all_seurat)
+```
+
+
+```{r}
+GW19_M1_all_seurat = find_marker(GW19_M1_all_seurat)
+```
+
+
+
+```{r}
+saveRDS(GW19_M1_all_seurat, file = "E:/sushant/Test/GW19_M1_all_seurat.rds")
+```
+
+
+
+```{r}
+normalize_variable_scaled_2 <- function(Seurat_Object,n){
+  Seurat_Object <- NormalizeData(Seurat_Object)
+  
+  # Identify high variable features
+  
+  Seurat_Object <- FindVariableFeatures(Seurat_Object, selection.method = "vst", nfeatures = n)
+  top10 <- head(VariableFeatures(Seurat_Object), 10)
+  print(LabelPoints(plot = VariableFeaturePlot(Seurat_Object), points = top10, repel = TRUE))
+  
+  # Perform Data Scaling
+  Seurat_Object <- ScaleData(object = Seurat_Object, vars.to.regress = "percent.mt")
+  Seurat_Object <- RunPCA(object = Seurat_Object, pc.genes = Seurat_Object@var.genes, do.print = TRUE, pcs.print = 1:5, 
+    genes.print = 5)
+
+  return(Seurat_Object)
+}
+```
+
+
+
+
+
+## Doing the same procedure for GW19_M1_CP
+
+```{r}
+violin_plot_feature_scatter(GW19_M1_CP_seurat,feature_Vector)
+```
+
+
+```{r}
+##Take Subset
+GW19_M1_CP_seurat <- subset(GW19_M1_CP_seurat, subset = nFeature_RNA > 500 & nFeature_RNA < 4700 & percent.mt < 10)
+```
+
+
+
+
+```{r}
+print(ggplot(GW19_M1_CP_seurat@meta.data) + geom_density(aes(x=nFeature_RNA)))
+print(ggplot(GW19_M1_CP_seurat@meta.data) + geom_density(aes(x=nCount_RNA)))
+print(ggplot(GW19_M1_CP_seurat@meta.data) + geom_density(aes(x=percent.mt)))
+```
+
+
+
+
+
+
+
+```{r}
+GW19_M1_CP_seurat = normalize_variable_scaled_2(GW19_M1_CP_seurat,4000)
+```
+
+```{r}
+dimension_selection(GW19_M1_CP_seurat)
+```
+
+```{r}
+GW19_M1_CP_seurat = cell_clustering_markers(GW19_M1_CP_seurat)
+```
+
+
+```{r}
+TSNEPlot(GW19_M1_CP_seurat)
+```
+
+
+```{r}
+GW19_M1_CP_seurat = find_marker(GW19_M1_CP_seurat)
+```
+
+
+
+```{r}
+saveRDS(GW19_M1_CP_seurat, file = "E:/sushant/Test/GW19_M1_CP_seurat.rds")
+```
+
+
+
+
+## Doing the same procedure for GW20_motor
+
+
+```{r}
+violin_plot_feature_scatter(GW20_motor_seurat,feature_Vector)
+```
+
+
+```{r}
+##Take Subset
+GW20_motor_seurat <- subset(GW20_motor_seurat, subset = nFeature_RNA > 200 & nFeature_RNA < 3500 & percent.mt < 4)
+```
+
+
+
+
+```{r}
+print(ggplot(GW20_motor_seurat@meta.data) + geom_density(aes(x=nFeature_RNA)))
+print(ggplot(GW20_motor_seurat@meta.data) + geom_density(aes(x=nCount_RNA)))
+print(ggplot(GW20_motor_seurat@meta.data) + geom_density(aes(x=percent.mt)))
+```
+
+
+
+
+
+
+```{r}
+GW20_motor_seurat = normalize_variable_scaled_2(GW20_motor_seurat,3000)
+```
+
+```{r}
+dimension_selection(GW20_motor_seurat)
+```
+
+```{r}
+GW20_motor_seurat = cell_clustering_markers(GW20_motor_seurat)
+```
+
+
+```{r}
+TSNEPlot(GW20_motor_seurat)
+```
+
+
+```{r}
+GW20_motor_seurat = find_marker(GW20_motor_seurat)
+```
+
+
+
+```{r}
+saveRDS(GW20_motor_seurat, file = "E:/sushant/Test/GW20_motor_seurat.rds")
+```
+
+
+## Doing the same procedure for GW22_motor1
+
+
+```{r}
+violin_plot_feature_scatter(GW22_motor1_seurat,feature_Vector)
+```
+
+
+```{r}
+##Take Subset
+GW22_motor1_seurat <- subset(GW22_motor1_seurat, subset = nFeature_RNA > 200 & nFeature_RNA < 3000 & percent.mt < 8)
+```
+
+
+
+
+```{r}
+print(ggplot(GW22_motor1_seurat@meta.data) + geom_density(aes(x=nFeature_RNA)))
+print(ggplot(GW22_motor1_seurat@meta.data) + geom_density(aes(x=nCount_RNA)))
+print(ggplot(GW22_motor1_seurat@meta.data) + geom_density(aes(x=percent.mt)))
+```
+
+
+
+
+
+
+```{r}
+GW22_motor1_seurat = normalize_variable_scaled_2(GW22_motor1_seurat,2500)
+```
+
+```{r}
+dimension_selection(GW22_motor1_seurat)
+```
+
+```{r}
+GW22_motor1_seurat = cell_clustering_markers(GW22_motor1_seurat)
+```
+
+
+```{r}
+TSNEPlot(GW22_motor1_seurat)
+```
+
+
+```{r}
+GW22_motor1_seurat = find_marker(GW22_motor1_seurat)
+```
+
+
+
+```{r}
+saveRDS(GW22_motor1_seurat, file = "E:/sushant/Test/GW22_motor1_seurat.rds")
+```
+
+
+
+## Doing the same procedure for GW22_motor2
+
+
+
+
+
+```{r}
+violin_plot_feature_scatter(GW22_motor2_seurat,feature_Vector)
+```
+
+
+```{r}
+##Take Subset
+GW22_motor2_seurat <- subset(GW22_motor2_seurat, subset = nFeature_RNA > 200 & nFeature_RNA < 3000 & percent.mt < 7.5)
+```
+
+
+
+
+```{r}
+print(ggplot(GW22_motor2_seurat@meta.data) + geom_density(aes(x=nFeature_RNA)))
+print(ggplot(GW22_motor2_seurat@meta.data) + geom_density(aes(x=nCount_RNA)))
+print(ggplot(GW22_motor2_seurat@meta.data) + geom_density(aes(x=percent.mt)))
+```
+
+
+
+
+
+
+```{r}
+GW22_motor2_seurat = normalize_variable_scaled_2(GW22_motor2_seurat,2500)
+```
+
+```{r}
+dimension_selection(GW22_motor2_seurat)
+```
+
+```{r}
+GW22_motor2_seurat = cell_clustering_markers(GW22_motor2_seurat)
+```
+
+
+```{r}
+TSNEPlot(GW22_motor2_seurat)
+```
+
+
+```{r}
+GW22_motor2_seurat = find_marker(GW22_motor2_seurat)
+```
+
+
+
+```{r}
+saveRDS(GW22_motor2_seurat, file = "E:/sushant/Test/GW22_motor2_seurat.rds")
+```
+
+
+
+
+## Doing the same procedure for GW22T_motor1
+
+
+```{r}
+violin_plot_feature_scatter(GW22T_motor1_seurat,feature_Vector)
+```
+
+
+```{r}
+##Take Subset
+GW22T_motor1_seurat <- subset(GW22T_motor1_seurat, subset = nFeature_RNA > 200 & nFeature_RNA < 2200 & percent.mt < 7)
+```
+
+
+
+
+```{r}
+print(ggplot(GW22T_motor1_seurat@meta.data) + geom_density(aes(x=nFeature_RNA)))
+print(ggplot(GW22T_motor1_seurat@meta.data) + geom_density(aes(x=nCount_RNA)))
+print(ggplot(GW22T_motor1_seurat@meta.data) + geom_density(aes(x=percent.mt)))
+```
+
+
+
+
+
+
+```{r}
+GW22T_motor1_seurat = normalize_variable_scaled_2(GW22T_motor1_seurat,2000)
+```
+
+```{r}
+dimension_selection(GW22T_motor1_seurat)
+```
+
+```{r}
+GW22T_motor1_seurat = cell_clustering_markers(GW22T_motor1_seurat)
+```
+
+
+```{r}
+TSNEPlot(GW22T_motor1_seurat)
+```
+
+
+```{r}
+GW22T_motor1_seurat = find_marker(GW22T_motor1_seurat)
+```
+
+
+
+```{r}
+saveRDS(GW22T_motor1_seurat, file = "E:/sushant/Test/GW22T_motor1_seurat.rds")
+```
+
+
+
+
+
+## Doing the same procedure for GW22T_motor2
+
+
+
+```{r}
+violin_plot_feature_scatter(GW22T_motor2_seurat,feature_Vector)
+```
+
+
+```{r}
+##Take Subset
+GW22T_motor2_seurat <- subset(GW22T_motor2_seurat, subset = nFeature_RNA > 200 & nFeature_RNA < 2000 & percent.mt < 7.5)
+```
+
+
+
+
+```{r}
+print(ggplot(GW22T_motor2_seurat@meta.data) + geom_density(aes(x=nFeature_RNA)))
+print(ggplot(GW22T_motor2_seurat@meta.data) + geom_density(aes(x=nCount_RNA)))
+print(ggplot(GW22T_motor2_seurat@meta.data) + geom_density(aes(x=percent.mt)))
+```
+
+
+
+
+
+
+```{r}
+GW22T_motor2_seurat = normalize_variable_scaled_2(GW22T_motor2_seurat,1500)
+```
+
+```{r}
+dimension_selection(GW22T_motor2_seurat)
+```
+
+```{r}
+GW22T_motor2_seurat = cell_clustering_markers(GW22T_motor2_seurat)
+```
+
+
+```{r}
+TSNEPlot(GW22T_motor2_seurat)
+```
+
+
+```{r}
+GW22T_motor2_seurat = find_marker(GW22T_motor2_seurat)
+```
+
+
+
+```{r}
+saveRDS(GW22T_motor2_seurat, file = "E:/sushant/Test/GW22T_motor2_seurat.rds")
+```
+
+
+
+
+## Doing the same procedure for filtered_feature_bc_matrix
+
+
+
+
+```{r}
+violin_plot_feature_scatter(filtered_feature_bc_matrix_seurat,feature_Vector)
+```
+
+
+```{r}
+##Take Subset
+filtered_feature_bc_matrix_seurat <- subset(filtered_feature_bc_matrix_seurat, subset = nFeature_RNA > 200 & nFeature_RNA < 4500 & percent.mt < 33)
+```
+
+
+
+
+```{r}
+print(ggplot(filtered_feature_bc_matrix_seurat@meta.data) + geom_density(aes(x=nFeature_RNA)))
+print(ggplot(filtered_feature_bc_matrix_seurat@meta.data) + geom_density(aes(x=nCount_RNA)))
+print(ggplot(filtered_feature_bc_matrix_seurat@meta.data) + geom_density(aes(x=percent.mt)))
+```
+
+
+
+
+
+
+```{r}
+filtered_feature_bc_matrix_seurat = normalize_variable_scaled_2(filtered_feature_bc_matrix_seurat,4000)
+```
+
+```{r}
+dimension_selection(filtered_feature_bc_matrix_seurat)
+```
+
+```{r}
+filtered_feature_bc_matrix_seurat = cell_clustering_markers(filtered_feature_bc_matrix_seurat)
+```
+
+
+```{r}
+TSNEPlot(filtered_feature_bc_matrix_seurat)
+```
+
+
+```{r}
+filtered_feature_bc_matrix_seurat = find_marker(filtered_feature_bc_matrix_seurat)
+```
+
+
+
+```{r}
+saveRDS(filtered_feature_bc_matrix_seurat, file = "E:/sushant/Test/filtered_feature_bc_matrix_seurat.rds")
+```
+
+
+
+```{r}
+GW18_motor_data = read.csv("E:/sushant/Test/GW18_motor_seurat_pred.csv")
+GW19_M1_all_data = read.csv("E:/sushant/Test/GW19_M1_all_seurat_pred.csv")
+GW19_M1_CP_data = read.csv("E:/sushant/Test/GW19_M1_CP_seurat_pred.csv")
+GW20_motor_data = read.csv("E:/sushant/Test/GW20_motor_seurat_pred.csv")
+GW22_motor1_data = read.csv("E:/sushant/Test/GW22_motor1_seurat_pred.csv")
+GW22_motor2_data = read.csv("E:/sushant/Test/GW22_motor2_seurat_pred.csv")
+GW22T_motor1_data = read.csv("E:/sushant/Test/GW22T_motor1_seurat_pred.csv")
+GW22T_motor2_data = read.csv("E:/sushant/Test/GW22T_motor2_seurat_pred.csv")
+filtered_feature_bc_matrix_data = read.csv("E:/sushant/Test/filtered_feature_bc_matrix_seurat_pred.csv")
+
+```
+
+
+## Aggregating the results on the basis of predicted cluster
+
+```{r}
+GW18_motor_results = aggregate(GW18_motor_data$cell, by = list(GW18_motor_data$predicted.cluster) , FUN = length)
+GW18_motor_results <- set_names(GW18_motor_results,c("Cell Type","Count"))
+
+
+
+GW19_M1_all_results = aggregate(GW19_M1_all_data$cell, by = list(GW19_M1_all_data$predicted.cluster) , FUN = length)
+GW19_M1_all_results <- set_names(GW19_M1_all_results,c("Cell Type","Count"))
+
+
+
+
+GW19_M1_CP_results = aggregate(GW19_M1_CP_data$cell, by = list(GW19_M1_CP_data$predicted.cluster) , FUN = length)
+GW19_M1_CP_results <- set_names(GW19_M1_CP_results,c("Cell Type","Count"))
+
+
+GW20_motor_results = aggregate(GW20_motor_data$cell, by = list(GW20_motor_data$predicted.cluster) , FUN = length)
+GW20_motor_results <- set_names(GW20_motor_results,c("Cell Type","Count"))
+
+
+
+
+GW22_motor1_results = aggregate(GW22_motor1_data$cell, by = list(GW22_motor1_data$predicted.cluster) , FUN = length)
+GW22_motor1_results <- set_names(GW22_motor1_results,c("Cell Type","Count"))
+
+
+
+
+GW22_motor2_results = aggregate(GW22_motor2_data$cell, by = list(GW22_motor2_data$predicted.cluster) , FUN = length)
+GW22_motor2_results <- set_names(GW22_motor2_results,c("Cell Type","Count"))
+
+
+
+
+
+GW22T_motor1_results = aggregate(GW22T_motor1_data$cell, by = list(GW22T_motor1_data$predicted.cluster) , FUN = length)
+GW22T_motor1_results <- set_names(GW22T_motor1_results,c("Cell Type","Count"))
+
+
+
+
+
+GW22T_motor2_results = aggregate(GW22T_motor2_data$cell, by = list(GW22T_motor2_data$predicted.cluster) , FUN = length)
+GW22T_motor2_results <- set_names(GW22T_motor2_results,c("Cell Type","Count"))
+
+
+
+
+
+
+filtered_feature_bc_matrix_results = aggregate(filtered_feature_bc_matrix_data$cell, by = list(filtered_feature_bc_matrix_data$predicted.cluster) , FUN = length)
+filtered_feature_bc_matrix_results <- set_names(filtered_feature_bc_matrix_results,c("Cell Type","Count"))
+
+
+
+```
+
+
+
+
+```{r}
+write.csv(GW18_motor_results,file="E:/sushant/Output CSV/GW18_motor_aggr.csv")
+write.csv(GW19_M1_all_results,file="E:/sushant/Output CSV/GW19_M1_all_aggr.csv")
+write.csv(GW19_M1_CP_results,file="E:/sushant/Output CSV/GW19_M1_CP_aggr.csv")
+write.csv(GW20_motor_results,file="E:/sushant/Output CSV/GW20_motor_aggr.csv")
+write.csv(GW22_motor1_results,file="E:/sushant/Output CSV/GW22_motor1_aggr.csv")
+write.csv(GW22_motor2_results,file="E:/sushant/Output CSV/GW22_motor2_aggr.csv")
+write.csv(GW22T_motor1_results,file="E:/sushant/Output CSV/GW22T_motor1__aggr.csv")
+write.csv(GW22T_motor2_results,file="E:/sushant/Output CSV/GW22T_motor2_aggr.csv")
+write.csv(filtered_feature_bc_matrix_results,file="E:/sushant/Output CSV/filtered_feature_bc_matrix_aggr.csv")
+
+```
+
